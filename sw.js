@@ -1,6 +1,6 @@
 // Service worker: funciona sin señal una vez abierta con internet.
-const APP = 'cortepad-v1';
-const TILES = 'cortepad-tiles-v1';
+const APP = 'cortepad-v2';
+const TILES = 'cortepad-tiles-v2';
 const SHELL = ['./', 'index.html', 'manifest.json', 'leaflet.js', 'leaflet.css', 'delaunator.min.js',
   'corte.dxf', 'icon-192.png', 'icon-512.png'];
 
