@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#14213d">
+<title>Corte PAD · Recorrido GPS</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="leaflet.css">
+<style>
+  :root{
+    --ink:#14213d; --ink2:#46526b; --bg:#ffffff; --line:#d9dee8; --acc:#e85d04; --ok:#1b7f3b; --warn:#b42318; --blue:#1d6fe8;
+    --safe-b: env(safe-area-inset-bottom, 0px);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:#e9edf3;overscroll-behavior:none}
+  #map{position:fixed;inset:0;background:#dfe4ea}
+  .leaflet-container{font:inherit}
+
+  /* Barra superior */
+  #top{position:fixed;top:0;left:0;right:0;z-index:1000;display:flex;align-items:center;gap:8px;padding:10px 10px 10px 14px;
+       background:rgba(20,33,61,.94);color:#fff;padding-top:calc(10px + env(safe-area-inset-top,0px))}
+  #top h1{font-size:15px;margin:0;font-weight:700;line-height:1.15;flex:1;min-width:0}
+  #top h1 small{display:block;font-weight:500;opacity:.75;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tbtn{border:0;background:rgba(255,255,255,.14);color:#fff;border-radius:10px;height:38px;min-width:38px;padding:0 10px;font-size:18px;cursor:pointer}
+
+  /* Botones flotantes */
+  #fabs{position:fixed;right:10px;z-index:1000;display:flex;flex-direction:column;gap:10px;bottom:calc(var(--panelH,150px) + 14px)}
+  .fab{width:50px;height:50px;border-radius:50%;border:0;background:#fff;color:var(--ink);box-shadow:0 2px 8px rgba(0,0,0,.28);font-size:21px;display:grid;place-items:center;cursor:pointer}
+  .fab.on{background:var(--blue);color:#fff}
+  .fab svg{width:24px;height:24px}
+
+  /* Leyenda */
+  #legend{position:fixed;left:10px;z-index:1000;background:rgba(255,255,255,.95);border-radius:10px;padding:8px 10px;font-size:11px;
+          box-shadow:0 2px 8px rgba(0,0,0,.2);bottom:calc(var(--panelH,150px) + 14px)}
+  #legend b{display:block;font-size:11px;margin-bottom:4px}
+  #legend .ramp{width:22px;height:120px;border-radius:4px;float:left;margin-right:6px}
+  #legend .ticks{height:120px;display:flex;flex-direction:column;justify-content:space-between;font-variant-numeric:tabular-nums}
+  #legend .ln{clear:both;padding-top:6px;display:flex;align-items:center;gap:6px}
+  #legend .sw{width:18px;height:0;border-top:3px solid}
+
+  /* Panel inferior */
+  #panel{position:fixed;left:0;right:0;bottom:0;z-index:1001;background:var(--bg);border-radius:16px 16px 0 0;box-shadow:0 -3px 14px rgba(0,0,0,.18);
+         padding:12px 14px calc(12px + var(--safe-b))}
+  #panel .row{display:flex;align-items:flex-end;gap:12px}
+  #depthBox{flex:0 0 auto;min-width:118px;align-self:center}
+  #depthLbl{font-size:11.5px;color:var(--ink2);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+  #depthVal{font-size:42px;margin-top:2px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+  #depthVal small{font-size:20px;font-weight:700}
+  #grid{flex:1;display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  #grid span:nth-child(odd){color:var(--ink2)}
+  #grid span:nth-child(even){font-weight:700;text-align:right}
+  #status{margin-top:8px;font-size:12.5px;padding:6px 10px;border-radius:8px;background:#f1f4f9;color:var(--ink2);display:flex;gap:8px;align-items:center}
+  #status.in{background:#e6f4ea;color:var(--ok)}
+  #status.out{background:#fdecea;color:var(--warn)}
+  #status .dot{width:9px;height:9px;border-radius:50%;background:currentColor;flex:0 0 auto}
+  #status button{margin-left:auto;border:0;background:var(--ink);color:#fff;border-radius:8px;padding:6px 10px;font-size:12.5px;font-weight:600}
+
+  /* Hoja de ajustes */
+  #sheet{position:fixed;inset:0;z-index:2000;background:rgba(10,15,30,.45);display:none}
+  #sheet.open{display:block}
+  #sheet .box{position:absolute;left:0;right:0;bottom:0;max-height:88vh;overflow:auto;background:#fff;border-radius:16px 16px 0 0;padding:16px 16px calc(20px + var(--safe-b))}
+  #sheet h2{margin:0 0 10px;font-size:17px;display:flex;align-items:center}
+  #sheet h2 button{margin-left:auto}
+  #sheet h3{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink2);margin:18px 0 8px}
+  .fld{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:14px}
+  .fld label{flex:1}
+  .fld input[type=number],.fld select,.fld input[type=text]{width:120px;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:15px}
+  .btn{border:0;background:var(--ink);color:#fff;border-radius:10px;padding:10px 14px;font-size:14px;font-weight:600;cursor:pointer}
+  .btn.ghost{background:#eef1f6;color:var(--ink)}
+  .btn.red{background:#fdecea;color:var(--warn)}
+  .btns{display:flex;flex-wrap:wrap;gap:8px}
+  .note{font-size:12.5px;color:var(--ink2);line-height:1.45}
+  #ptsList{font-size:12.5px;max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin:8px 0}
+  #ptsList div{padding:6px 8px;border-bottom:1px solid #eef1f6;font-variant-numeric:tabular-nums}
+  #ptsList div:last-child{border:0}
+
+  /* Popup */
+  .pp{font-size:13px;min-width:190px;font-variant-numeric:tabular-nums}
+  .pp .big{font-size:26px;font-weight:800;margin:2px 0 6px}
+  .pp table{border-collapse:collapse;width:100%}
+  .pp td{padding:1px 0}
+  .pp td:last-child{text-align:right;font-weight:700}
+  .pp .btn{margin-top:8px;width:100%;padding:8px}
+  .pp .out{color:var(--warn);font-weight:700}
+
+  #toast{position:fixed;left:50%;top:calc(70px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:3000;background:var(--ink);color:#fff;
+         padding:9px 14px;border-radius:10px;font-size:13.5px;opacity:0;transition:opacity .25s;pointer-events:none;max-width:90vw;text-align:center}
+  #toast.show{opacity:1}
+  #loader{position:fixed;inset:0;z-index:4000;background:rgba(255,255,255,.9);display:grid;place-items:center;font-size:15px;text-align:center;padding:20px}
+  #loader.hide{display:none}
+  .gpsdot{width:20px;height:20px;border-radius:50%;background:var(--blue);border:3px solid #fff;box-shadow:0 0 0 2px rgba(29,111,232,.35),0 1px 6px rgba(0,0,0,.4)}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="top">
+  <h1>Corte PAD · F2 Retiro de Mineral<small id="subTitle">Cargando superficie…</small></h1>
+  <button class="tbtn" id="btnSettings" aria-label="Ajustes">⚙︎</button>
+</div>
+
+<div id="legend"></div>
+
+<div id="fabs">
+  <button class="fab" id="btnLayers" title="Fondo del mapa" aria-label="Fondo del mapa">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="m2 13 10 5 10-5"/></svg>
+  </button>
+  <button class="fab" id="btnFit" title="Ver toda el área" aria-label="Ver toda el área">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+  </button>
+  <button class="fab" id="btnGps" title="Activar GPS" aria-label="Activar GPS">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+  </button>
+</div>
+
+<div id="panel">
+  <div class="row">
+    <div id="depthBox">
+      <div id="depthLbl">Prof. de corte</div>
+      <div id="depthVal">—</div>
+    </div>
+    <div id="grid">
+      <span>Este</span><span id="vE">—</span>
+      <span>Norte</span><span id="vN">—</span>
+      <span>Cota proyecto</span><span id="vZd">—</span>
+      <span>Cota terreno</span><span id="vZt">—</span>
+      <span id="lGps">Cota GPS</span><span id="vZg">—</span>
+    </div>
+  </div>
+  <div id="status"><span class="dot"></span><span id="statusTxt">Activa el GPS o toca un punto del mapa</span><button id="btnSaveGps" hidden>Guardar</button></div>
+</div>
+
+<div id="sheet">
+  <div class="box">
+    <h2>Ajustes <button class="btn ghost" id="btnClose">Cerrar</button></h2>
+
+    <h3>Puntos guardados</h3>
+    <div id="ptsList"></div>
+    <div class="btns">
+      <button class="btn" id="btnCsv">Exportar CSV</button>
+      <button class="btn red" id="btnClearPts">Borrar todos</button>
+    </div>
+
+    <h3>Ir a coordenada</h3>
+    <div class="fld"><label>Este</label><input type="number" id="goE" inputmode="decimal" step="0.001"></div>
+    <div class="fld"><label>Norte</label><input type="number" id="goN" inputmode="decimal" step="0.001"></div>
+    <button class="btn ghost" id="btnGo">Ubicar en el mapa</button>
+
+    <h3>Sistema y GPS</h3>
+    <div class="fld"><label>Zona UTM (WGS84)</label>
+      <select id="optZone"><option value="17S">17 Sur</option><option value="18S">18 Sur</option><option value="19S">19 Sur</option></select></div>
+    <div class="fld"><label>Corrección a la cota GPS (m)<br><span class="note">Se suma a la altura del celular (ej. ondulación del geoide o ajuste con un punto conocido).</span></label>
+      <input type="number" id="optOffset" step="0.01" inputmode="decimal"></div>
+    <div class="fld"><label>Opacidad del mapa de profundidades</label><input type="range" id="optOpacity" min="0" max="100"></div>
+
+    <h3>Superficies</h3>
+    <p class="note" id="srcInfo"></p>
+    <div class="btns">
+      <label class="btn ghost">Cargar DXF de proyecto<input type="file" id="fileDesign" accept=".dxf" hidden></label>
+      <label class="btn ghost">Cargar DXF de terreno<input type="file" id="fileTerrain" accept=".dxf" hidden></label>
+    </div>
+    <div class="btns" style="margin-top:8px">
+      <button class="btn red" id="btnResetSurf">Volver al DXF original</button>
+    </div>
+
+    <h3>¿Cómo se calcula?</h3>
+    <p class="note">
+      <b>Superficie de proyecto:</b> se triangula con todas las polilíneas 3D del DXF (borde exterior + pies de talud), limitada por el borde cerrado.<br>
+      <b>Terreno:</b> si no cargas una topografía, se estima interpolando la cota del borde exterior (línea de corte sobre el terreno) a través del área. Cerca del borde es confiable; al centro es una aproximación.<br>
+      <b>Profundidad de corte</b> = cota terreno − cota proyecto.<br>
+      <b>GPS − proyecto</b> usa la altura del celular; es solo referencial (error típico de ±3 a ±10 m en vertical).
+    </p>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="loader">Cargando superficie de corte…</div>
+
+<script src="leaflet.js"></script>
+<script src="delaunator.min.js"></script>
+<script>
+"use strict";
+/* =========================================================
+   Utilidades UTM (WGS84)
+   ========================================================= */
+const UTM = (() => {
+  const a = 6378137, f = 1/298.257223563, k0 = 0.9996;
+  const e2 = f*(2-f), ep2 = e2/(1-e2), e4 = e2*e2, e6 = e4*e2;
+  const D2R = Math.PI/180;
+  const lon0 = z => ((z-1)*6 - 180 + 3) * D2R;
+  function fwd(lat, lon, zone, south){
+    const phi = lat*D2R, lam = lon*D2R;
+    const s = Math.sin(phi), c = Math.cos(phi), t = Math.tan(phi);
+    const N = a/Math.sqrt(1-e2*s*s), T = t*t, C = ep2*c*c, A = c*(lam-lon0(zone));
+    const M = a*((1-e2/4-3*e4/64-5*e6/256)*phi - (3*e2/8+3*e4/32+45*e6/1024)*Math.sin(2*phi)
+              + (15*e4/256+45*e6/1024)*Math.sin(4*phi) - (35*e6/3072)*Math.sin(6*phi));
+    const E = k0*N*(A + (1-T+C)*A**3/6 + (5-18*T+T*T+72*C-58*ep2)*A**5/120) + 500000;
+    let Nn = k0*(M + N*t*(A*A/2 + (5-T+9*C+4*C*C)*A**4/24 + (61-58*T+T*T+600*C-330*ep2)*A**6/720));
+    if (south) Nn += 10000000;
+    return [E, Nn];
+  }
+  function inv(E, Nn, zone, south){
+    const x = E-500000, y = south ? Nn-10000000 : Nn;
+    const M = y/k0, mu = M/(a*(1-e2/4-3*e4/64-5*e6/256));
+    const e1 = (1-Math.sqrt(1-e2))/(1+Math.sqrt(1-e2));
+    const p1 = mu + (3*e1/2-27*e1**3/32)*Math.sin(2*mu) + (21*e1*e1/16-55*e1**4/32)*Math.sin(4*mu)
+             + (151*e1**3/96)*Math.sin(6*mu) + (1097*e1**4/512)*Math.sin(8*mu);
+    const s = Math.sin(p1), c = Math.cos(p1), t = Math.tan(p1);
+    const N1 = a/Math.sqrt(1-e2*s*s), T1 = t*t, C1 = ep2*c*c, R1 = a*(1-e2)/Math.pow(1-e2*s*s,1.5), D = x/(N1*k0);
+    const lat = p1 - (N1*t/R1)*(D*D/2 - (5+3*T1+10*C1-4*C1*C1-9*ep2)*D**4/24 + (61+90*T1+298*C1+45*T1*T1-252*ep2-3*C1*C1)*D**6/720);
+    const lon = lon0(zone) + (D - (1+2*T1+C1)*D**3/6 + (5-2*C1+28*T1-3*C1*C1+8*ep2+24*T1*T1)*D**5/120)/c;
+    return [lat/D2R, lon/D2R];
+  }
+  return {fwd, inv};
+})();
+
+/* =========================================================
+   Lector DXF (POLYLINE 2D/3D, LWPOLYLINE, LINE, POINT, 3DFACE)
+   ========================================================= */
+function parseDXF(text){
+  const L = text.split(/\r?\n/);
+  const pairs = [];
+  for (let i=0; i+1<L.length; i+=2) pairs.push([parseInt(L[i].trim(),10), L[i+1].trim()]);
+  // ubicar sección ENTITIES
+  let i = 0, start=-1, end=pairs.length;
+  for (; i<pairs.length-1; i++){
+    if (pairs[i][0]===0 && pairs[i][1]==='SECTION' && pairs[i+1][0]===2 && pairs[i+1][1]==='ENTITIES'){ start=i+2; break; }
+  }
+  if (start<0) throw new Error('El DXF no tiene sección ENTITIES');
+  for (i=start; i<pairs.length; i++) if (pairs[i][0]===0 && pairs[i][1]==='ENDSEC'){ end=i; break; }
+
+  // agrupar en entidades
+  const ents = []; let cur=null;
+  for (i=start; i<end; i++){
+    const [c,v] = pairs[i];
+    if (c===0){ cur = {type:v, g:[]}; ents.push(cur); }
+    else if (cur) cur.g.push([c,v]);
+  }
+  const get = (e,c,d) => { const p=e.g.find(q=>q[0]===c); return p? p[1] : d; };
+  const num = (e,c,d=0) => { const p=e.g.find(q=>q[0]===c); return p? parseFloat(p[1]) : d; };
+
+  const out = {polys:[], points:[]};
+  for (let k=0; k<ents.length; k++){
+    const e = ents[k];
+    if (e.type==='POLYLINE'){
+      const flag = parseInt(get(e,70,'0'),10)||0, elev = num(e,30,0), is3d = !!(flag&8);
+      if (flag & 64) { // malla policara: tomar solo vértices
+        while (k+1<ents.length && ents[k+1].type==='VERTEX'){ k++; const v=ents[k]; if (!((parseInt(get(v,70,'0'),10)||0)&128) || num(v,10)||num(v,20)) out.points.push([num(v,10),num(v,20),num(v,30)]); }
+        continue;
+      }
+      const pts=[];
+      while (k+1<ents.length && ents[k+1].type==='VERTEX'){ k++; const v=ents[k]; pts.push([num(v,10),num(v,20), is3d? num(v,30) : elev]); }
+      if (k+1<ents.length && ents[k+1].type==='SEQEND') k++;
+      if (pts.length>1) out.polys.push({layer:get(e,8,'0'), closed:!!(flag&1), pts});
+    } else if (e.type==='LWPOLYLINE'){
+      const flag = parseInt(get(e,70,'0'),10)||0, elev = num(e,38,0);
+      const xs=e.g.filter(q=>q[0]===10).map(q=>+q[1]), ys=e.g.filter(q=>q[0]===20).map(q=>+q[1]);
+      const pts = xs.map((x,j)=>[x,ys[j],elev]);
+      if (pts.length>1) out.polys.push({layer:get(e,8,'0'), closed:!!(flag&1), pts});
+    } else if (e.type==='LINE'){
+      out.polys.push({layer:get(e,8,'0'), closed:false, pts:[[num(e,10),num(e,20),num(e,30)],[num(e,11),num(e,21),num(e,31)]]});
+    } else if (e.type==='POINT'){
+      out.points.push([num(e,10),num(e,20),num(e,30)]);
+    } else if (e.type==='3DFACE'){
+      for (let j=0;j<4;j++) out.points.push([num(e,10+j),num(e,20+j),num(e,30+j)]);
+    }
+  }
+  if (!out.polys.length && !out.points.length) throw new Error('No se encontraron polilíneas ni puntos en el DXF');
+  return out;
+}
+
+/* =========================================================
+   Geometría y superficies TIN
+   ========================================================= */
+function densify(pts, step){
+  const out=[pts[0]];
+  for (let i=1;i<pts.length;i++){
+    const a=pts[i-1], b=pts[i], d=Math.hypot(b[0]-a[0], b[1]-a[1]);
+    const n=Math.max(1, Math.ceil(d/step));
+    for (let k=1;k<=n;k++){ const t=k/n; out.push([a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t]); }
+  }
+  return out;
+}
+function ringArea(p){ let s=0; for (let i=0,j=p.length-1;i<p.length;j=i++) s += (p[j][0]+p[i][0])*(p[j][1]-p[i][1]); return Math.abs(s/2); }
+function inRing(x,y,p){
+  let ins=false;
+  for (let i=0,j=p.length-1;i<p.length;j=i++){
+    const xi=p[i][0], yi=p[i][1], xj=p[j][0], yj=p[j][1];
+    if (((yi>y)!==(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi)) ins=!ins;
+  }
+  return ins;
+}
+function distToRing(x,y,p){
+  let best=Infinity;
+  for (let i=0,j=p.length-1;i<p.length;j=i++){
+    const ax=p[j][0], ay=p[j][1], bx=p[i][0], by=p[i][1], dx=bx-ax, dy=by-ay;
+    const L2=dx*dx+dy*dy; let t = L2? ((x-ax)*dx+(y-ay)*dy)/L2 : 0; t=Math.max(0,Math.min(1,t));
+    best=Math.min(best, Math.hypot(x-(ax+t*dx), y-(ay+t*dy)));
+  }
+  return best;
+}
+
+class TIN {
+  constructor(points, clipRing){
+    // quitar duplicados
+    const seen=new Map(), P=[];
+    for (const p of points){ const k=p[0].toFixed(3)+','+p[1].toFixed(3); if(!seen.has(k)){ seen.set(k,1); P.push(p);} }
+    this.P=P;
+    const coords=new Float64Array(P.length*2); P.forEach((p,i)=>{coords[2*i]=p[0];coords[2*i+1]=p[1];});
+    const d=new Delaunator(coords), T=d.triangles, tris=[];
+    for (let i=0;i<T.length;i+=3){
+      const a=P[T[i]], b=P[T[i+1]], c=P[T[i+2]];
+      const cx=(a[0]+b[0]+c[0])/3, cy=(a[1]+b[1]+c[1])/3;
+      if (clipRing && !inRing(cx,cy,clipRing)) continue;
+      const area=Math.abs((b[0]-a[0])*(c[1]-a[1])-(c[0]-a[0])*(b[1]-a[1]));
+      if (area<1e-6) continue;
+      tris.push(T[i],T[i+1],T[i+2]);
+    }
+    this.T=tris;
+    // índice espacial por celdas
+    let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+    for (const p of P){ x0=Math.min(x0,p[0]); y0=Math.min(y0,p[1]); x1=Math.max(x1,p[0]); y1=Math.max(y1,p[1]); }
+    this.cs=4; this.x0=x0; this.y0=y0;
+    this.nx=Math.max(1,Math.ceil((x1-x0)/this.cs)+1); this.ny=Math.max(1,Math.ceil((y1-y0)/this.cs)+1);
+    this.cells=new Array(this.nx*this.ny);
+    for (let t=0;t<tris.length;t+=3){
+      const a=P[tris[t]], b=P[tris[t+1]], c=P[tris[t+2]];
+      const i0=Math.floor((Math.min(a[0],b[0],c[0])-x0)/this.cs), i1=Math.floor((Math.max(a[0],b[0],c[0])-x0)/this.cs);
+      const j0=Math.floor((Math.min(a[1],b[1],c[1])-y0)/this.cs), j1=Math.floor((Math.max(a[1],b[1],c[1])-y0)/this.cs);
+      for (let i=i0;i<=i1;i++) for (let j=j0;j<=j1;j++){ const k=j*this.nx+i; (this.cells[k]||(this.cells[k]=[])).push(t); }
+    }
+  }
+  z(x,y){
+    const i=Math.floor((x-this.x0)/this.cs), j=Math.floor((y-this.y0)/this.cs);
+    if (i<0||j<0||i>=this.nx||j>=this.ny) return null;
+    const list=this.cells[j*this.nx+i]; if(!list) return null;
+    const P=this.P, T=this.T;
+    for (const t of list){
+      const a=P[T[t]], b=P[T[t+1]], c=P[T[t+2]];
+      const det=(b[1]-c[1])*(a[0]-c[0])+(c[0]-b[0])*(a[1]-c[1]);
+      const l1=((b[1]-c[1])*(x-c[0])+(c[0]-b[0])*(y-c[1]))/det;
+      const l2=((c[1]-a[1])*(x-c[0])+(a[0]-c[0])*(y-c[1]))/det;
+      const l3=1-l1-l2, eps=-1e-9;
+      if (l1>=eps && l2>=eps && l3>=eps) return l1*a[2]+l2*b[2]+l3*c[2];
+    }
+    return null;
+  }
+}
+
+/* =========================================================
+   Estado y preferencias
+   ========================================================= */
+const store = {
+  get(k,d){ try{ const v=localStorage.getItem('cortepad.'+k); return v==null? d : JSON.parse(v);}catch(e){ return d; } },
+  set(k,v){ try{ localStorage.setItem('cortepad.'+k, JSON.stringify(v)); return true; }catch(e){ return false; } },
+  del(k){ try{ localStorage.removeItem('cortepad.'+k);}catch(e){} }
+};
+const S = {
+  zone: store.get('zone','17S'),
+  offset: store.get('offset',0),
+  opacity: store.get('opacity',65),
+  base: store.get('base','sat'),
+  points: store.get('points',[]),
+  follow: true, gpsOn:false, watchId:null, lastFix:null, wake:null,
+  model:null
+};
+const zoneNum = () => parseInt(S.zone,10), zoneSouth = () => S.zone.endsWith('S');
+const toLL = (E,N) => UTM.inv(E,N,zoneNum(),zoneSouth());
+const toEN = (lat,lon) => UTM.fwd(lat,lon,zoneNum(),zoneSouth());
+
+const $ = id => document.getElementById(id);
+const f2 = v => v==null||isNaN(v) ? '—' : v.toFixed(2);
+const f3 = v => v==null||isNaN(v) ? '—' : v.toFixed(3);
+function toast(msg, ms=2600){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),ms); }
+
+/* =========================================================
+   Construcción del modelo
+   ========================================================= */
+function buildModel(design, terrain){
+  // borde = polilínea cerrada (o casi cerrada) de mayor área
+  const valid = design.polys.filter(p => p.pts.some(q=>q[2]!==0));
+  let boundary=null, bestA=0;
+  for (const p of valid){
+    const f=p.pts[0], l=p.pts[p.pts.length-1];
+    const closed = p.closed || Math.hypot(f[0]-l[0], f[1]-l[1]) < 0.05;
+    if (!closed || p.pts.length<3) continue;
+    const A=ringArea(p.pts); if (A>bestA){ bestA=A; boundary=p; }
+  }
+  if (!boundary) throw new Error('No se encontró una polilínea cerrada que delimite el área');
+  const ring = boundary.pts.slice();
+  if (Math.hypot(ring[0][0]-ring[ring.length-1][0], ring[0][1]-ring[ring.length-1][1])<0.05) ring.pop();
+  const ringClosed = ring.concat([ring[0]]);
+
+  const designPts=[];
+  for (const p of valid){ const pts = (p===boundary)? ringClosed : p.pts; designPts.push(...densify(pts,1.0)); }
+  design.points.filter(q=>q[2]!==0).forEach(q=>designPts.push(q));
+  const tinD = new TIN(designPts, ring);
+
+  let tinT, terrainSrc;
+  if (terrain){
+    const tp=[];
+    terrain.polys.filter(p=>p.pts.some(q=>q[2]!==0)).forEach(p=>tp.push(...densify(p.closed? p.pts.concat([p.pts[0]]) : p.pts, 2.0)));
+    terrain.points.filter(q=>q[2]!==0).forEach(q=>tp.push(q));
+    tinT = new TIN(tp, null); terrainSrc='topografía cargada';
+  } else {
+    tinT = new TIN(densify(ringClosed,1.0), ring); terrainSrc='estimado desde el borde';
+  }
+
+  // estadísticas y ráster de profundidad
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+  for (const p of ring){ x0=Math.min(x0,p[0]); y0=Math.min(y0,p[1]); x1=Math.max(x1,p[0]); y1=Math.max(y1,p[1]); }
+  const lines = valid.filter(p=>p!==boundary).map(p=>p.pts);
+  return {ring, ringClosed, lines, tinD, tinT, terrainSrc, bbox:[x0,y0,x1,y1], area:bestA};
+}
+
+function query(E,N){
+  const m=S.model; if(!m) return null;
+  const inside = inRing(E,N,m.ring);
+  const zd = m.tinD.z(E,N), zt = m.tinT.z(E,N);
+  const dep = (zd!=null && zt!=null) ? zt-zd : null;
+  return {E,N,inside, zd, zt, dep, dist: inside? 0 : distToRing(E,N,m.ring)};
+}
+
+/* Rampa de colores para profundidad */
+const RAMP = [[0,[255,247,188]],[0.25,[254,196,79]],[0.5,[245,120,40]],[0.75,[200,40,50]],[1,[92,15,70]]];
+function rampColor(t){
+  t=Math.max(0,Math.min(1,t));
+  for (let i=1;i<RAMP.length;i++){
+    if (t<=RAMP[i][0]){ const [t0,c0]=RAMP[i-1], [t1,c1]=RAMP[i], u=(t-t0)/(t1-t0);
+      return [0,1,2].map(k=>Math.round(c0[k]+(c1[k]-c0[k])*u)); }
+  }
+  return RAMP[RAMP.length-1][1];
+}
+
+function buildRaster(m){
+  // ráster alineado a lat/lon (para L.imageOverlay) remuestreando desde UTM
+  const [x0,y0,x1,y1]=m.bbox, pad=2;
+  const corners=[[x0-pad,y0-pad],[x1+pad,y0-pad],[x0-pad,y1+pad],[x1+pad,y1+pad]].map(c=>toLL(c[0],c[1]));
+  const latMin=Math.min(...corners.map(c=>c[0])), latMax=Math.max(...corners.map(c=>c[0]));
+  const lonMin=Math.min(...corners.map(c=>c[1])), lonMax=Math.max(...corners.map(c=>c[1]));
+  const TL=toEN(latMax,lonMin), TR=toEN(latMax,lonMax), BL=toEN(latMin,lonMin);
+  const wM=Math.hypot(TR[0]-TL[0],TR[1]-TL[1]), hM=Math.hypot(BL[0]-TL[0],BL[1]-TL[1]);
+  const res=0.4, W=Math.min(2400,Math.ceil(wM/res)), H=Math.min(2400,Math.ceil(hM/res));
+  const vals=new Float32Array(W*H).fill(NaN);
+  let mx=0, mn=0;
+  for (let j=0;j<H;j++){
+    const v=(j+0.5)/H;
+    for (let i=0;i<W;i++){
+      const u=(i+0.5)/W;
+      const E=TL[0]+u*(TR[0]-TL[0])+v*(BL[0]-TL[0]), N=TL[1]+u*(TR[1]-TL[1])+v*(BL[1]-TL[1]);
+      const zd=m.tinD.z(E,N); if (zd==null) continue;
+      const zt=m.tinT.z(E,N); if (zt==null) continue;
+      const d=zt-zd; vals[j*W+i]=d; if(d>mx) mx=d; if(d<mn) mn=d;
+    }
+  }
+  const maxD=Math.max(1,Math.ceil(mx));
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  const ctx=cv.getContext('2d'), img=ctx.createImageData(W,H);
+  for (let k=0;k<W*H;k++){
+    const d=vals[k]; if (isNaN(d)) continue;
+    let c;
+    if (d<-0.05) c=[77,163,255];           // relleno (proyecto sobre terreno)
+    else c=rampColor(Math.max(0,d)/maxD);
+    img.data[4*k]=c[0]; img.data[4*k+1]=c[1]; img.data[4*k+2]=c[2]; img.data[4*k+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+  return {url:cv.toDataURL('image/png'), bounds:[[latMin,lonMin],[latMax,lonMax]], maxD, minD:mn};
+}
+
+/* =========================================================
+   Mapa
+   ========================================================= */
+const map = L.map('map', {zoomControl:false, attributionControl:true, maxZoom:22, tap:true});
+const bases = {
+  sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxNativeZoom:19, maxZoom:22, attribution:'Imagen © Esri'}),
+  osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxNativeZoom:19, maxZoom:22, attribution:'© OpenStreetMap'}),
+  none: L.layerGroup()
+};
+const baseNames = {sat:'Satélite', osm:'Mapa', none:'Sin fondo'};
+function setBase(k){ Object.values(bases).forEach(l=>map.removeLayer(l)); bases[k].addTo(map); S.base=k; store.set('base',k);
+  document.getElementById('map').style.background = k==='none' ? '#f4f6f9' : '#dfe4ea'; }
+setBase(S.base);
+L.control.scale({imperial:false, position:'topleft'}).addTo(map);
+map.getContainer().querySelector('.leaflet-top.leaflet-left').style.marginTop='calc(64px + env(safe-area-inset-top,0px))';
+
+let lyrDepth=null, lyrLines=L.layerGroup().addTo(map), lyrPts=L.layerGroup().addTo(map);
+let gpsMarker=null, gpsCircle=null, pickMarker=null;
+
+function drawModel(){
+  const m=S.model;
+  if (lyrDepth) map.removeLayer(lyrDepth);
+  lyrLines.clearLayers();
+  const r=buildRaster(m); m.raster=r;
+  lyrDepth=L.imageOverlay(r.url, r.bounds, {opacity:S.opacity/100, interactive:false}).addTo(map);
+  L.polyline(m.ringClosed.map(p=>toLL(p[0],p[1])), {color:'#111', weight:2.5, opacity:.9, interactive:false}).addTo(lyrLines);
+  m.lines.forEach(l=>L.polyline(l.map(p=>toLL(p[0],p[1])), {color:'#1d6fe8', weight:2, dashArray:'6 5', interactive:false}).addTo(lyrLines));
+  drawLegend(r);
+  $('subTitle').textContent = `Área ${Math.round(m.area).toLocaleString('es-PE')} m² · Corte máx. ${f2(r.maxD>0? maxDepth(): 0)} m · UTM ${S.zone}`;
+  $('srcInfo').innerHTML = `Proyecto: <b>${S.designName}</b><br>Terreno: <b>${S.terrainName || m.terrainSrc}</b>`;
+}
+function maxDepth(){ return S.model._maxDep; }
+
+function drawLegend(r){
+  const n=4, ticks=[];
+  for (let i=n;i>=0;i--) ticks.push(`<span>${(r.maxD*i/n).toFixed(1)} m</span>`);
+  const grad = 'linear-gradient(to top,' + RAMP.map(s=>`rgb(${s[1].join(',')}) ${s[0]*100}%`).join(',') + ')';
+  $('legend').innerHTML = `<b>Prof. corte</b><div class="ramp" style="background:${grad}"></div><div class="ticks">${ticks.join('')}</div>
+    ${r.minD<-0.05? '<div class="ln"><span class="sw" style="border-color:#4da3ff;border-top-width:8px"></span>Relleno</div>':''}
+    <div class="ln"><span class="sw" style="border-color:#111"></span>Borde</div>
+    <div class="ln"><span class="sw" style="border-color:#1d6fe8;border-top-style:dashed"></span>Pie talud</div>`;
+}
+
+function fitArea(){ if(!S.model) return; map.fitBounds(L.polyline(S.model.ringClosed.map(p=>toLL(p[0],p[1]))).getBounds(), {paddingTopLeft:[20,80], paddingBottomRight:[70, (window._panelH||150)+20]}); }
+
+/* =========================================================
+   Lectura de un punto (toque)
+   ========================================================= */
+function popupHtml(q){
+  if (!q.inside) return `<div class="pp"><div class="out">Fuera del área de corte</div>a ${f2(q.dist)} m del borde<table>
+    <tr><td>Este</td><td>${f3(q.E)}</td></tr><tr><td>Norte</td><td>${f3(q.N)}</td></tr></table></div>`;
+  return `<div class="pp">Profundidad de corte<div class="big">${f2(q.dep)} m</div><table>
+    <tr><td>Este</td><td>${f3(q.E)}</td></tr><tr><td>Norte</td><td>${f3(q.N)}</td></tr>
+    <tr><td>Cota proyecto</td><td>${f3(q.zd)}</td></tr><tr><td>Cota terreno</td><td>${f3(q.zt)}</td></tr></table>
+    <button class="btn" data-save="pick">Guardar punto</button></div>`;
+}
+let lastPick=null;
+map.on('click', ev=>{
+  if (!S.model) return;
+  const [E,N]=toEN(ev.latlng.lat, ev.latlng.lng);
+  const q=query(E,N); lastPick=q;
+  if (pickMarker) map.removeLayer(pickMarker);
+  pickMarker=L.circleMarker(ev.latlng,{radius:7,color:'#fff',weight:2,fillColor:'#e85d04',fillOpacity:1}).addTo(map)
+    .bindPopup(popupHtml(q),{autoPanPaddingTopLeft:[10,80],autoPanPaddingBottomRight:[10,(window._panelH||150)+10]}).openPopup();
+  if (!S.gpsOn) showReading(q, null);
+});
+document.addEventListener('click', ev=>{
+  const b=ev.target.closest('[data-save]'); if(!b) return;
+  if (b.dataset.save==='pick' && lastPick){ savePoint(lastPick,'Mapa',null); map.closePopup(); }
+});
+
+/* =========================================================
+   Panel de lectura
+   ========================================================= */
+function showReading(q, fix){
+  $('vE').textContent=f3(q.E); $('vN').textContent=f3(q.N);
+  $('vZd').textContent=f3(q.zd); $('vZt').textContent=f3(q.zt);
+  const st=$('status');
+  if (q.inside && q.dep!=null){
+    $('depthVal').innerHTML = `${f2(q.dep)}<small> m</small>`;
+    $('depthVal').style.color = q.dep<0? '#1d6fe8' : 'var(--ink)';
+    st.className='in';
+  } else {
+    $('depthVal').innerHTML='—'; $('depthVal').style.color='var(--ink)'; st.className='out';
+  }
+  let txt;
+  if (fix){
+    const zg = fix.alt!=null ? fix.alt + (+S.offset||0) : null;
+    $('vZg').textContent = zg!=null ? f2(zg) + (q.zd!=null? ` (${(zg-q.zd)>=0?'+':''}${f2(zg-q.zd)})` : '') : 'sin dato';
+    $('lGps').textContent = 'Cota GPS (Δ)';
+    txt = q.inside ? `Dentro del área · precisión ±${fix.acc.toFixed(1)} m` : `Fuera del área · a ${f2(q.dist)} m del borde · ±${fix.acc.toFixed(1)} m`;
+    $('btnSaveGps').hidden=false;
+  } else {
+    $('vZg').textContent='—'; $('lGps').textContent='Cota GPS';
+    txt = q.inside ? 'Punto seleccionado en el mapa' : `Punto fuera del área · a ${f2(q.dist)} m del borde`;
+    $('btnSaveGps').hidden=true;
+  }
+  $('statusTxt').textContent=txt;
+}
+
+/* =========================================================
+   GPS
+   ========================================================= */
+async function keepAwake(){ try{ if('wakeLock' in navigator && S.gpsOn) S.wake=await navigator.wakeLock.request('screen'); }catch(e){} }
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && S.gpsOn) keepAwake(); });
+
+function startGps(){
+  if (!('geolocation' in navigator)){ toast('Este navegador no tiene GPS'); return; }
+  if (!window.isSecureContext){ toast('El GPS requiere abrir la app desde https (GitHub Pages)', 4000); }
+  S.gpsOn=true; S.follow=true; $('btnGps').classList.add('on');
+  $('statusTxt').textContent='Buscando señal GPS…'; $('status').className='';
+  S.watchId = navigator.geolocation.watchPosition(onFix, err=>{
+    const m={1:'Permiso de ubicación denegado',2:'Ubicación no disponible',3:'Tiempo de espera del GPS agotado'}[err.code]||err.message;
+    toast(m,3500); if (err.code===1) stopGps();
+  }, {enableHighAccuracy:true, maximumAge:0, timeout:30000});
+  keepAwake();
+}
+function stopGps(){
+  if (S.watchId!=null) navigator.geolocation.clearWatch(S.watchId);
+  S.watchId=null; S.gpsOn=false; $('btnGps').classList.remove('on');
+  if (gpsMarker){ map.removeLayer(gpsMarker); map.removeLayer(gpsCircle); gpsMarker=gpsCircle=null; }
+  try{ S.wake && S.wake.release(); }catch(e){} S.wake=null;
+  $('statusTxt').textContent='GPS apagado · toca un punto del mapa'; $('status').className=''; $('btnSaveGps').hidden=true;
+}
+function onFix(pos){
+  const c=pos.coords, ll=[c.latitude,c.longitude];
+  const [E,N]=toEN(c.latitude,c.longitude);
+  const fix={E,N,acc:c.accuracy, alt:c.altitude, altAcc:c.altitudeAccuracy, t:pos.timestamp};
+  S.lastFix=fix;
+  if (!gpsMarker){
+    gpsCircle=L.circle(ll,{radius:c.accuracy,color:'#1d6fe8',weight:1,fillOpacity:.12,interactive:false}).addTo(map);
+    gpsMarker=L.marker(ll,{icon:L.divIcon({className:'',html:'<div class="gpsdot"></div>',iconSize:[20,20],iconAnchor:[10,10]}),interactive:false,zIndexOffset:1000}).addTo(map);
+  } else { gpsMarker.setLatLng(ll); gpsCircle.setLatLng(ll).setRadius(c.accuracy); }
+  if (S.follow) map.setView(ll, Math.max(map.getZoom(),19), {animate:true});
+  const q=query(E,N); if (q){ S.lastQ=q; showReading(q, fix); }
+}
+$('btnGps').onclick=()=>{
+  if (!S.gpsOn) startGps();
+  else if (!S.follow && S.lastFix){ S.follow=true; const ll=toLL(S.lastFix.E,S.lastFix.N); map.setView(ll, Math.max(map.getZoom(),19)); toast('Siguiendo tu posición'); }
+  else stopGps();
+};
+map.on('dragstart', ()=>{ if (S.follow && S.gpsOn){ S.follow=false; toast('Seguimiento pausado · toca ◎ para volver'); } });
+$('btnSaveGps').onclick=()=>{ if (S.lastQ && S.lastFix) savePoint(S.lastQ,'GPS',S.lastFix); };
+
+/* =========================================================
+   Puntos guardados
+   ========================================================= */
+function savePoint(q, tipo, fix){
+  const zg = fix && fix.alt!=null ? fix.alt + (+S.offset||0) : null;
+  const p={n:(S.points.reduce((m,x)=>Math.max(m,x.n),0)+1), tipo, t:new Date().toISOString(), E:q.E, N:q.N,
+           zd:q.zd, zt:q.zt, dep:q.dep, zg, acc: fix? fix.acc : null, dentro:q.inside};
+  S.points.push(p); store.set('points',S.points); renderPoints(); toast(`Punto P${p.n} guardado`);
+}
+function renderPoints(){
+  lyrPts.clearLayers();
+  S.points.forEach(p=>{
+    L.circleMarker(toLL(p.E,p.N),{radius:6,color:'#fff',weight:2,fillColor:'#14213d',fillOpacity:1})
+     .bindTooltip(`P${p.n}`,{permanent:true,direction:'right',offset:[6,0],className:''})
+     .bindPopup(`<div class="pp"><b>P${p.n}</b> · ${p.tipo}<div class="big">${f2(p.dep)} m</div><table>
+       <tr><td>Este</td><td>${f3(p.E)}</td></tr><tr><td>Norte</td><td>${f3(p.N)}</td></tr>
+       <tr><td>Cota proyecto</td><td>${f3(p.zd)}</td></tr><tr><td>Cota terreno</td><td>${f3(p.zt)}</td></tr>
+       ${p.zg!=null?`<tr><td>Cota GPS</td><td>${f2(p.zg)}</td></tr>`:''}</table></div>`).addTo(lyrPts);
+  });
+  $('ptsList').innerHTML = S.points.length ? S.points.slice().reverse().map(p=>
+    `<div><b>P${p.n}</b> ${p.tipo} · E ${p.E.toFixed(2)} N ${p.N.toFixed(2)} · <b>${f2(p.dep)} m</b> · ${new Date(p.t).toLocaleString('es-PE',{dateStyle:'short',timeStyle:'short'})}</div>`).join('')
+    : '<div class="note">Aún no hay puntos. Guarda desde el panel (GPS) o tocando el mapa.</div>';
+}
+$('btnCsv').onclick=()=>{
+  if (!S.points.length){ toast('No hay puntos para exportar'); return; }
+  const h=['Punto','Origen','FechaHora','Este','Norte','CotaProyecto','CotaTerreno','ProfCorte','CotaGPS','PrecisionH_m','DentroArea'];
+  const rows=S.points.map(p=>[`P${p.n}`,p.tipo,new Date(p.t).toLocaleString('es-PE'),f3(p.E),f3(p.N),f3(p.zd),f3(p.zt),f2(p.dep),p.zg!=null?f2(p.zg):'',p.acc!=null?p.acc.toFixed(1):'',p.dentro?'SI':'NO']);
+  const csv='﻿'+[h,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(';')).join('\r\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  const d=new Date(); a.download=`puntos_corte_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+};
+$('btnClearPts').onclick=()=>{ if (S.points.length && confirm('¿Borrar todos los puntos guardados?')){ S.points=[]; store.set('points',[]); renderPoints(); } };
+
+/* =========================================================
+   Ajustes
+   ========================================================= */
+$('btnSettings').onclick=()=>{ $('sheet').classList.add('open'); };
+$('btnClose').onclick=()=>$('sheet').classList.remove('open');
+$('sheet').addEventListener('click', e=>{ if(e.target.id==='sheet') $('sheet').classList.remove('open'); });
+$('optZone').value=S.zone;
+$('optZone').onchange=e=>{ S.zone=e.target.value; store.set('zone',S.zone); drawModel(); renderPoints(); fitArea(); };
+$('optOffset').value=S.offset;
+$('optOffset').oninput=e=>{ S.offset=parseFloat(e.target.value)||0; store.set('offset',S.offset); };
+$('optOpacity').value=S.opacity;
+$('optOpacity').oninput=e=>{ S.opacity=+e.target.value; store.set('opacity',S.opacity); lyrDepth && lyrDepth.setOpacity(S.opacity/100); };
+$('btnLayers').onclick=()=>{ const order=['sat','osm','none']; const k=order[(order.indexOf(S.base)+1)%3]; setBase(k); toast('Fondo: '+baseNames[k]); };
+$('btnFit').onclick=()=>{ S.follow=false; fitArea(); };
+$('btnGo').onclick=()=>{
+  const E=parseFloat($('goE').value), N=parseFloat($('goN').value);
+  if (isNaN(E)||isNaN(N)){ toast('Ingresa Este y Norte'); return; }
+  $('sheet').classList.remove('open'); S.follow=false;
+  const ll=toLL(E,N); map.setView(ll, 20); setTimeout(()=>map.fire('click',{latlng:L.latLng(ll)}),350);
+};
+
+function compact(dxf){ // reducir para guardar en el navegador
+  const r = v=>Math.round(v*1000)/1000;
+  return {polys:dxf.polys.map(p=>({layer:p.layer, closed:p.closed, pts:p.pts.map(q=>q.map(r))})), points:dxf.points.map(q=>q.map(r))};
+}
+function readFile(file){ return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsText(file); }); }
+$('fileDesign').onchange=async e=>{
+  const f=e.target.files[0]; if(!f) return; e.target.value='';
+  try{
+    const dxf=parseDXF(await readFile(f));
+    const m=buildModel(dxf, S.terrain); S.design=dxf; S.designName=f.name; applyModel(m);
+    if (!store.set('design',{name:f.name, data:compact(dxf)})) toast('Cargado, pero es muy grande para guardarlo en el teléfono',4000);
+    else toast('Superficie de proyecto actualizada');
+    fitArea();
+  }catch(err){ toast('Error: '+err.message,4500); }
+};
+$('fileTerrain').onchange=async e=>{
+  const f=e.target.files[0]; if(!f) return; e.target.value='';
+  try{
+    const dxf=parseDXF(await readFile(f));
+    const m=buildModel(S.design, dxf); S.terrain=dxf; S.terrainName=f.name; applyModel(m);
+    if (!store.set('terrain',{name:f.name, data:compact(dxf)})) toast('Cargado, pero es muy grande para guardarlo en el teléfono',4000);
+    else toast('Terreno actualizado');
+  }catch(err){ toast('Error: '+err.message,4500); }
+};
+$('btnResetSurf').onclick=async ()=>{ store.del('design'); store.del('terrain'); S.terrain=null; S.terrainName=null; await loadDefault(); fitArea(); toast('DXF original restablecido'); };
+
+function applyModel(m){
+  // profundidad máxima real (muestreo)
+  S.model=m;
+  let mx=0; const [x0,y0,x1,y1]=m.bbox;
+  for (let x=x0;x<=x1;x+=1) for (let y=y0;y<=y1;y+=1){ const zd=m.tinD.z(x,y), zt=zd!=null? m.tinT.z(x,y):null; if(zt!=null && zt-zd>mx) mx=zt-zd; }
+  m._maxDep=mx;
+  drawModel();
+  if (S.lastFix) onFix({coords:{latitude:toLL(S.lastFix.E,S.lastFix.N)[0],longitude:toLL(S.lastFix.E,S.lastFix.N)[1],accuracy:S.lastFix.acc,altitude:S.lastFix.alt,altitudeAccuracy:S.lastFix.altAcc},timestamp:S.lastFix.t});
+}
+
+async function loadDefault(){
+  const r=await fetch('corte.dxf',{cache:'no-cache'});
+  if (!r.ok) throw new Error('No se pudo leer corte.dxf');
+  const dxf=parseDXF(await r.text());
+  S.design=dxf; S.designName='261115_CORTE_PAD_2D_F2 (Retiro de Mineral)';
+  applyModel(buildModel(dxf, S.terrain));
+}
+
+/* =========================================================
+   Arranque
+   ========================================================= */
+function measurePanel(){ const h=$('panel').offsetHeight; window._panelH=h; document.documentElement.style.setProperty('--panelH',h+'px'); }
+window.addEventListener('resize', measurePanel); measurePanel();
+if ('ResizeObserver' in window) new ResizeObserver(measurePanel).observe($('panel'));
+
+(async function init(){
+  try{
+    const sd=store.get('design',null), st=store.get('terrain',null);
+    if (st){ S.terrain=st.data; S.terrainName=st.name; }
+    if (sd){ S.design=sd.data; S.designName=sd.name; applyModel(buildModel(sd.data, S.terrain)); }
+    else await loadDefault();
+    fitArea(); renderPoints();
+    $('loader').classList.add('hide');
+  }catch(err){
+    console.error(err);
+    $('loader').innerHTML=`<div>No se pudo cargar la superficie.<br><small>${err.message}</small><br><br>
+      <label class="btn">Elegir archivo DXF<input type="file" accept=".dxf" hidden id="fileFirst"></label>
+      <p class="note">Si abriste el archivo directamente desde el teléfono, usa la versión publicada en GitHub Pages.</p></div>`;
+    $('fileFirst').onchange=async e=>{ const f=e.target.files[0]; if(!f) return;
+      try{ const dxf=parseDXF(await readFile(f)); S.design=dxf; S.designName=f.name; applyModel(buildModel(dxf,null)); fitArea(); renderPoints(); $('loader').classList.add('hide'); }
+      catch(er){ toast('Error: '+er.message,4500); } };
+  }
+})();
+
+if ('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>
